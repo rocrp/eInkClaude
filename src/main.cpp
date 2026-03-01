@@ -8,6 +8,7 @@
 #include "dashboard.h"
 #include "credentials.h"
 #include "touch_ui.h"
+#include "secrets.h"
 
 uint8_t *framebuffer = NULL;
 
@@ -70,7 +71,7 @@ bool connectWiFi() {
 
 void syncNTP() {
     Serial.println("Syncing time via NTP...");
-    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+    configTime(3600, 3600, "pool.ntp.org", "time.nist.gov"); // CET (UTC+1), DST +1h
 
     struct tm timeinfo;
     int attempts = 0;
@@ -314,8 +315,17 @@ void setup() {
     bool have_creds = creds_load(wifi_ssid, wifi_pass, oauth_token);
 
     if (!have_creds) {
-        // First boot or cleared — run setup wizard
-        runSetupWizard();
+        // Check for hardcoded defaults in secrets.h
+        if (strlen(DEFAULT_SSID) > 0 && strlen(DEFAULT_TOKEN) > 0) {
+            Serial.println("Using hardcoded defaults from secrets.h");
+            strncpy(wifi_ssid, DEFAULT_SSID, sizeof(wifi_ssid) - 1);
+            strncpy(wifi_pass, DEFAULT_PASS, sizeof(wifi_pass) - 1);
+            strncpy(oauth_token, DEFAULT_TOKEN, sizeof(oauth_token) - 1);
+            creds_save(wifi_ssid, wifi_pass, oauth_token);
+        } else {
+            // No defaults — run interactive setup wizard
+            runSetupWizard();
+        }
     }
 
     // Connect WiFi with loaded/entered credentials
@@ -328,18 +338,10 @@ void setup() {
     }
 
     if (WiFi.status() != WL_CONNECTED) {
-        // WiFi failed after 3 attempts — re-enter setup
-        dashboard_draw_waiting("WiFi failed! Re-entering setup...");
-        delay(2000);
-        creds_clear();
-        runSetupWizard();
-
-        dashboard_draw_waiting("Connecting to WiFi...");
-        if (!connectWiFi()) {
-            dashboard_draw_waiting("WiFi failed! Rebooting...");
-            delay(3000);
-            ESP.restart();
-        }
+        // WiFi failed — retry without wiping credentials
+        dashboard_draw_waiting("WiFi failed! Rebooting...");
+        delay(3000);
+        ESP.restart();
     }
 
     dashboard_draw_waiting("Syncing time...");
@@ -351,11 +353,9 @@ void setup() {
         dashboard_draw(currentStats);
         lastFetch = millis();
     } else {
-        dashboard_draw_waiting("API fetch failed! Check token.");
-        delay(5000);
-        // Clear creds and restart so user can re-enter token
-        creds_clear();
-        ESP.restart();
+        // API fetch failed — retry next loop, don't wipe credentials
+        dashboard_draw_waiting("API fetch failed, retrying...");
+        lastFetch = millis() - FETCH_INTERVAL + 30000; // retry in 30s
     }
 }
 
