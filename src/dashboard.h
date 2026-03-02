@@ -18,3 +18,4 @@ struct ClaudeStats {
 void dashboard_init();
 void dashboard_draw(const ClaudeStats &stats);
 void dashboard_draw_waiting(const char *message);
+bool dashboard_wifi_icon_tapped(int16_t x, int16_t y);

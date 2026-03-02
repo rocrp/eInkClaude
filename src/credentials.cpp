@@ -52,3 +52,40 @@ void creds_clear() {
     prefs.clear();
     prefs.end();
 }
+
+bool creds_load_refresh(char *refresh_token, unsigned long *expires_at) {
+    Preferences prefs;
+    prefs.begin(NVS_NS, true);
+
+    if (!prefs.isKey("rtoken")) {
+        prefs.end();
+        return false;
+    }
+
+    String rt = prefs.getString("rtoken", "");
+    *expires_at = prefs.getULong("exp_at", 0);
+    prefs.end();
+
+    if (rt.length() == 0) return false;
+
+    strncpy(refresh_token, rt.c_str(), 256);
+    refresh_token[255] = '\0';
+    return true;
+}
+
+void creds_save_refresh(const char *refresh_token, unsigned long expires_at) {
+    Preferences prefs;
+    prefs.begin(NVS_NS, false);
+    prefs.putString("rtoken", refresh_token);
+    prefs.putULong("exp_at", expires_at);
+    prefs.end();
+}
+
+void creds_save_token(const char *token, const char *refresh_token, unsigned long expires_at) {
+    Preferences prefs;
+    prefs.begin(NVS_NS, false);
+    prefs.putString("token", token);
+    prefs.putString("rtoken", refresh_token);
+    prefs.putULong("exp_at", expires_at);
+    prefs.end();
+}

@@ -16,12 +16,15 @@ uint8_t *framebuffer = NULL;
 static char wifi_ssid[64];
 static char wifi_pass[64];
 static char oauth_token[256];
+static char refresh_token[256];
+static unsigned long token_expires_at = 0; // epoch seconds
 
 ClaudeStats currentStats = {};
 unsigned long lastFetch = 0;
 static const unsigned long FETCH_INTERVAL = 300000; // 5 minutes
 
 static const int SETUP_BUTTON_PIN = 21;
+static const char *OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 
 // GlobalSign Root CA — trust anchor for api.anthropic.com
 // Chain: api.anthropic.com → Google Trust Services WE1 → GTS Root R4 → GlobalSign Root CA
@@ -47,6 +50,41 @@ U+eHfTDQViR4bfFP1J4SrKq0iz3JClGELf5bYJZfWPSgnPY/LEkam/bS80jsUJKm
 Rm9ISrBDcbgI+wds5EmJbOilAyFy2/C6MVBoOQWjBfCPk24p3XEdrIxRFSKj/LdN
 Yy/Je/VnhHQ3o0CPxPiDH/R0mYnsFM1LFIQyhN+g5gzNSf0FE0T7IbmasMv0K6q4
 BCBfP+6gtNb7I6F7LkNK7yR90dRx3CJY9Q==
+-----END CERTIFICATE-----
+)";
+
+// ISRG Root X1 — trust anchor for console.anthropic.com (Let's Encrypt)
+static const char *ISRG_ROOT_X1 = R"(
+-----BEGIN CERTIFICATE-----
+MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw
+TzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh
+cmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMTUwNjA0MTEwNDM4
+WhcNMzUwNjA0MTEwNDM4WjBPMQswCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJu
+ZXQgU2VjdXJpdHkgUmVzZWFyY2ggR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBY
+MTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAK3oJHP0FDfzm54rVygc
+h77ct984kIxuPOZXoHj3dcKi/vVqbvYATyjb3miGbESTtrFj/RQSa78f0uoxmyF+
+0TM8ukj13Xnfs7j/EvEhmkvBioZxaUpmZmyPfjxwv60pIgbz5MDmgK7iS4+3mX6U
+A5/TR5d8mUgjU+g4rk8Kb4Mu0UlXjIB0ttov0DiNewNwIRt18jA8+o+u3dpjq+sW
+T8KOEUt+zwvo/7V3LvSye0rgTBIlDHCNAymg4VMk7BPZ7hm/ELNKjD+Jo2FR3qyH
+B5T0Y3HsLuJvW5iB4YlcNHlsdu87kGJ55tukmi8mxdAQ4Q7e2RCOFvu396j3x+UC
+B5iPNgiV5+I3lg02dZ77DnKxHZu8A/lJBdiB3QW0KtZB6awBdpUKD9jf1b0SHzUv
+KBds0pjBqAlkd25HN7rOrFleaJ1/ctaJxQZBKT5ZPt0m9STJEadao0xAH0ahmbWn
+OlFuhjuefXKnEgV4We0+UXgVCwOPjdAvBbI+e0ocS3MFEvzG6uBQE3xDk3SzynTn
+jh8BCNAw1FtxNrQHusEwMFxIt4I7mKZ9YIqioymCzLq9gwQbooMDQaHWBfEbwrbw
+qHyGO0aoSCqI3Haadr8faqU9GY/rOPNk3sgrDQoo//fb4hVC1CLQJ13hef4Y53CI
+rU7m2Ys6xt0nUW7/vGT1M0NPAgMBAAGjQjBAMA4GA1UdDwEB/wQEAwIBBjAPBgNV
+HRMBAf8EBTADAQH/MB0GA1UdDgQWBBR5tFnme7bl5AFzgAiIyBpY9umbbjANBgkq
+hkiG9w0BAQsFAAOCAgEAVR9YqbyyqFDQDLHYGmkgJykIrGF1XIpu+ILlaS/V9lZL
+ubhzEFnTIZd+50xx+7LSYK05qAvqFyFWhfFQDlnrzuBZ6brJFe+GnY+EgPbk6ZGQ
+3BebYhtF8GaV0nxvwuo77x/Py9auJ/GpsMiu/X1+mvoiBOv/2X/qkSsisRcOj/KK
+NFtY2PwByVS5uCbMiogziUwthDyC3+6WVwW6LLv3xLfHTjuCvjHIInNzktHCgKQ5
+ORAzI4JMPJ+GslWYHb4phowim57iaztXOoJwTdwJx4nLCgdNbOhdjsnvzqvHu7Ur
+TkXWStAmzOVyyghqpZXjFaH3pO3JLF+l+/+sKAIuvtd7u+Nxe5AW0wdeRlN8NwdC
+jNPElpzVmbUq4JUagEiuTDkHzsxHpFKVK7q4+63SM1N95R1NbdWhscdCb+ZAJzVc
+oyi3B43njTOQ5yOf+1CceWxG1bQVs5ZufpsMljq4Ui0/1lvh+wjChP4kqKOJ2qxq
+4RgqsahDYVvTH9w7jXbyLeiNdd8XM2w9U/t7y0Ff/9yi0GE44Za4rF2LN9d11TPA
+mRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57d
+emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
 -----END CERTIFICATE-----
 )";
 
@@ -138,6 +176,89 @@ static void formatCountdown(unsigned long secs, char *buf, size_t len) {
     } else {
         snprintf(buf, len, "%lum", mins);
     }
+}
+
+// Refresh OAuth token using refresh_token
+bool refreshOAuthToken() {
+    if (refresh_token[0] == '\0') {
+        Serial.println("No refresh token available");
+        return false;
+    }
+
+    Serial.println("Refreshing OAuth token...");
+
+    WiFiClientSecure client;
+    client.setCACert(ISRG_ROOT_X1);
+
+    HTTPClient http;
+    if (!http.begin(client, "https://console.anthropic.com/v1/oauth/token")) {
+        Serial.println("HTTP begin failed for token refresh");
+        return false;
+    }
+
+    http.addHeader("Content-Type", "application/json");
+
+    JsonDocument reqDoc;
+    reqDoc["grant_type"] = "refresh_token";
+    reqDoc["refresh_token"] = refresh_token;
+    reqDoc["client_id"] = OAUTH_CLIENT_ID;
+
+    String body;
+    serializeJson(reqDoc, body);
+
+    int httpCode = http.POST(body);
+    Serial.printf("Token refresh response: %d\n", httpCode);
+
+    if (httpCode != 200) {
+        if (httpCode > 0) {
+            Serial.println(http.getString());
+        }
+        http.end();
+        return false;
+    }
+
+    String payload = http.getString();
+    http.end();
+
+    JsonDocument respDoc;
+    DeserializationError err = deserializeJson(respDoc, payload);
+    if (err) {
+        Serial.printf("Token refresh JSON parse error: %s\n", err.c_str());
+        return false;
+    }
+
+    const char *newToken = respDoc["access_token"] | (const char *)NULL;
+    const char *newRefresh = respDoc["refresh_token"] | (const char *)NULL;
+    int expiresIn = respDoc["expires_in"] | 0;
+
+    if (!newToken || !newRefresh) {
+        Serial.println("Token refresh: missing fields in response");
+        return false;
+    }
+
+    // Update in-memory tokens
+    strncpy(oauth_token, newToken, sizeof(oauth_token) - 1);
+    oauth_token[sizeof(oauth_token) - 1] = '\0';
+    strncpy(refresh_token, newRefresh, sizeof(refresh_token) - 1);
+    refresh_token[sizeof(refresh_token) - 1] = '\0';
+    token_expires_at = currentEpoch() + expiresIn;
+
+    // Persist to NVS
+    creds_save_token(oauth_token, refresh_token, token_expires_at);
+
+    Serial.printf("Token refreshed, expires in %ds\n", expiresIn);
+    return true;
+}
+
+// Ensure we have a valid (non-expired) access token
+bool ensureValidToken() {
+    unsigned long now = currentEpoch();
+    // Refresh if token expires within 5 minutes
+    if (token_expires_at > 0 && now + 300 < token_expires_at) {
+        return true; // Still valid
+    }
+    Serial.println("Token expired or expiring soon, refreshing...");
+    return refreshOAuthToken();
 }
 
 bool fetchUsage() {
@@ -328,6 +449,16 @@ void setup() {
         }
     }
 
+    // Load refresh token from NVS (or use default)
+    if (!creds_load_refresh(refresh_token, &token_expires_at)) {
+        if (strlen(DEFAULT_REFRESH_TOKEN) > 0) {
+            Serial.println("Using default refresh token from secrets.h");
+            strncpy(refresh_token, DEFAULT_REFRESH_TOKEN, sizeof(refresh_token) - 1);
+            token_expires_at = 0; // Force immediate refresh
+            creds_save_refresh(refresh_token, token_expires_at);
+        }
+    }
+
     // Connect WiFi with loaded/entered credentials
     dashboard_draw_waiting("Connecting to WiFi...");
     int wifi_attempts = 0;
@@ -349,6 +480,7 @@ void setup() {
 
     dashboard_draw_waiting("Fetching Claude usage...");
 
+    ensureValidToken();
     if (fetchUsage()) {
         dashboard_draw(currentStats);
         lastFetch = millis();
@@ -360,6 +492,37 @@ void setup() {
 }
 
 void loop() {
+    // Check for WiFi icon tap
+    int16_t tx, ty;
+    if (touch_get_tap(tx, ty) && dashboard_wifi_icon_tapped(tx, ty)) {
+        Serial.println("WiFi icon tapped — entering WiFi setup");
+        WiFi.disconnect();
+
+        // Run WiFi selector + password entry
+        run_wifi_selector(wifi_ssid);
+        run_keyboard_input("Enter WiFi Password", wifi_pass, sizeof(wifi_pass), true);
+
+        // Save new WiFi credentials (keep existing OAuth token)
+        creds_save(wifi_ssid, wifi_pass, oauth_token);
+        Serial.printf("WiFi changed to: %s\n", wifi_ssid);
+
+        // Reconnect with new credentials
+        dashboard_draw_waiting("Connecting to WiFi...");
+        if (!connectWiFi()) {
+            dashboard_draw_waiting("WiFi failed! Rebooting...");
+            delay(3000);
+            ESP.restart();
+        }
+
+        // Re-sync time and fetch
+        syncNTP();
+        if (fetchUsage()) {
+            dashboard_draw(currentStats);
+            lastFetch = millis();
+        }
+        return;
+    }
+
     // Reconnect WiFi if dropped
     if (WiFi.status() != WL_CONNECTED) {
         Serial.println("WiFi lost, reconnecting...");
@@ -371,6 +534,7 @@ void loop() {
 
     // Fetch every FETCH_INTERVAL ms
     if (millis() - lastFetch >= FETCH_INTERVAL) {
+        ensureValidToken();
         if (fetchUsage()) {
             dashboard_draw(currentStats);
         } else {
