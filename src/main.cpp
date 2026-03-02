@@ -500,6 +500,7 @@ void loop() {
         // Run WiFi selector — user can cancel with X
         if (!run_wifi_selector(wifi_ssid)) {
             Serial.println("WiFi setup cancelled");
+            dashboard_init(); // Force full refresh on return
             dashboard_draw(currentStats);
             return;
         }
