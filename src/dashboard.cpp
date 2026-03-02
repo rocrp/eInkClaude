@@ -1,4 +1,5 @@
 #include "dashboard.h"
+#include "touch_ui.h"
 #include <cstdio>
 #include <cstring>
 #include <time.h>
@@ -98,43 +99,46 @@ static void draw_usage_row(int row, const RowData &rd) {
     }
 }
 
+static void draw_wifi_icon();
+
 static void draw_header() {
     int32_t cx = SCREEN_W / 2 - 90;
     int32_t cy = HEADER_Y;
     writeln((GFXfont *)&FiraSans, "eInkClaude", &cx, &cy, framebuffer);
     epd_fill_rect(MARGIN_X, DIVIDER_Y, SCREEN_W - 2 * MARGIN_X, 2, 0x00, framebuffer);
+    draw_wifi_icon();
 }
 
-// WiFi icon hit region (bottom-right corner, 4x size)
-static const int WIFI_ICON_W = 120;
-static const int WIFI_ICON_H = 90;
+// WiFi icon — top-right corner, 2x
+static const int WIFI_ICON_W = 60;
+static const int WIFI_ICON_H = 50;
 static const int WIFI_ICON_X = SCREEN_W - WIFI_ICON_W - 10;
-static const int WIFI_ICON_Y = SCREEN_H - WIFI_ICON_H - 5;
+static const int WIFI_ICON_Y = 5;
 
 static void draw_wifi_icon() {
     int cx = WIFI_ICON_X + WIFI_ICON_W / 2;
-    int base_y = WIFI_ICON_Y + WIFI_ICON_H - 8;
+    int base_y = WIFI_ICON_Y + WIFI_ICON_H - 4;
 
     // Dot at center bottom
-    epd_fill_rect(cx - 4, base_y - 8, 9, 9, 0x00, framebuffer);
+    epd_fill_rect(cx - 2, base_y - 4, 5, 5, 0x00, framebuffer);
 
-    // Three arcs, 4x scale
+    // Three arcs
     for (int arc = 1; arc <= 3; arc++) {
-        int r = arc * 20;
-        for (int a = -50; a <= 50; a += 2) {
+        int r = arc * 10;
+        for (int a = -50; a <= 50; a += 3) {
             float rad = a * 3.14159f / 180.0f;
             int px = cx + (int)(r * sinf(rad));
             int py = base_y - (int)(r * cosf(rad));
             if (px >= 0 && px < SCREEN_W && py >= 0 && py < SCREEN_H) {
-                epd_fill_rect(px, py, 4, 4, 0x00, framebuffer);
+                epd_fill_rect(px, py, 3, 3, 0x00, framebuffer);
             }
         }
     }
 }
 
 bool dashboard_wifi_icon_tapped(int16_t x, int16_t y) {
-    // Very generous: anything in the bottom-right corner
-    return x >= WIFI_ICON_X - 30 && y >= WIFI_ICON_Y - 30;
+    // Generous: entire top-right corner
+    return x >= WIFI_ICON_X - 40 && y <= WIFI_ICON_Y + WIFI_ICON_H + 40;
 }
 
 static void draw_footer(const char *plan) {
@@ -150,8 +154,6 @@ static void draw_footer(const char *plan) {
     int32_t cx = (SCREEN_W - tw) / 2;
     int32_t cy = SCREEN_H - 15;
     writeln((GFXfont *)&FiraSansSmall, buf, &cx, &cy, framebuffer);
-
-    draw_wifi_icon();
 }
 
 // Build array of visible rows from stats, returns count
@@ -192,6 +194,7 @@ void dashboard_draw_waiting(const char *message) {
     epd_clear();
     epd_draw_grayscale_image(epd_full_screen(), framebuffer);
     epd_poweroff();
+    touch_drain();
 
     first_draw = true;
 }
@@ -222,6 +225,7 @@ void dashboard_draw(const ClaudeStats &stats) {
         epd_clear();
         epd_draw_grayscale_image(epd_full_screen(), framebuffer);
         epd_poweroff();
+        touch_drain();
 
         prev_num_rows = num_rows;
         memcpy(prev_rows, rows, sizeof(rows));
@@ -250,6 +254,8 @@ void dashboard_draw(const ClaudeStats &stats) {
     push_region(r);
 
     epd_poweroff();
+    // No touch_drain() here — partial refresh doesn't cause phantom touches,
+    // and draining kills legitimate taps stored during the HTTP fetch.
 
     prev_num_rows = num_rows;
     memcpy(prev_rows, rows, sizeof(rows));

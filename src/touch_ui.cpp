@@ -13,6 +13,18 @@ static TouchDrvGT911 touch;
 static const int SW = 960;
 static const int SH = 540;
 
+// ── Background touch task (forward declarations) ────────────────────────────
+static void touch_task(void *param);
+static volatile bool tap_ready = false;
+static volatile int16_t tap_buf_x = 0;
+static volatile int16_t tap_buf_y = 0;
+static volatile bool drain_requested = false;
+static portMUX_TYPE tap_mux = portMUX_INITIALIZER_UNLOCKED;
+
+// Screen label for debug logging
+static char screen_label[16] = "boot";
+static portMUX_TYPE label_mux = portMUX_INITIALIZER_UNLOCKED;
+
 // ── Touch driver ────────────────────────────────────────────────────────────
 
 bool touch_init() {
@@ -45,47 +57,136 @@ bool touch_init() {
     touch.setMirrorXY(false, true);
 
     Serial.printf("GT911 ready at 0x%02X\n", addr);
+
+    // Start background touch polling on core 0 (main loop runs on core 1)
+    xTaskCreatePinnedToCore(touch_task, "touch", 4096, NULL, 2, NULL, 0);
+    Serial.println("Touch polling task started on core 0");
+
     return true;
 }
 
-// Track press/release state so we only fire once per finger-down
-static bool was_touching = false;
+static void touch_task(void *param) {
+    bool was_touching = false;
+    int release_frames = 0;
+    const int RELEASE_THRESHOLD = 5;
+    uint32_t poll_count = 0;
+    uint32_t touch_count = 0;
+    uint32_t last_stats_ms = 0;
+
+    while (true) {
+        // Handle drain requests from main thread
+        if (drain_requested) {
+            Serial.printf("[TOUCH] drain start (screen=%s)\n", screen_label);
+            was_touching = true;
+            vTaskDelay(pdMS_TO_TICKS(300));
+            int16_t dx, dy;
+            int drained = 0;
+            for (int i = 0; i < 20; i++) {
+                if (!touch.getPoint(&dx, &dy)) break;
+                drained++;
+                vTaskDelay(pdMS_TO_TICKS(50));
+            }
+            was_touching = false;
+            // Clear any pending tap
+            portENTER_CRITICAL(&tap_mux);
+            tap_ready = false;
+            drain_requested = false;
+            portEXIT_CRITICAL(&tap_mux);
+            Serial.printf("[TOUCH] drain done, discarded %d points\n", drained);
+            continue;
+        }
+
+        int16_t tx, ty;
+        uint8_t touched = touch.getPoint(&tx, &ty);
+        poll_count++;
+
+        if (touched) {
+            touch_count++;
+            release_frames = 0;
+
+            // Get screen label safely
+            char lbl[16];
+            portENTER_CRITICAL(&label_mux);
+            memcpy(lbl, screen_label, sizeof(lbl));
+            portEXIT_CRITICAL(&label_mux);
+
+            if (!was_touching) {
+                was_touching = true;
+                // Store tap — main thread will pick it up
+                bool stored = false;
+                portENTER_CRITICAL(&tap_mux);
+                if (!tap_ready) {  // Don't overwrite unread tap
+                    tap_buf_x = tx;
+                    tap_buf_y = ty;
+                    tap_ready = true;
+                    stored = true;
+                }
+                portEXIT_CRITICAL(&tap_mux);
+                Serial.printf("[TOUCH] NEW tap (%d,%d) screen=%s stored=%d\n",
+                              tx, ty, lbl, stored);
+            } else {
+                Serial.printf("[TOUCH] held (%d,%d) screen=%s\n", tx, ty, lbl);
+            }
+        } else {
+            if (was_touching && release_frames < RELEASE_THRESHOLD) {
+                release_frames++;
+                if (release_frames >= RELEASE_THRESHOLD) {
+                    was_touching = false;
+                    Serial.printf("[TOUCH] released (screen=%s)\n", screen_label);
+                }
+            } else {
+                release_frames++;
+                if (release_frames >= RELEASE_THRESHOLD) {
+                    was_touching = false;
+                }
+            }
+        }
+
+        // Print stats every 5 seconds
+        uint32_t now_ms = (uint32_t)millis();
+        if (now_ms - last_stats_ms >= 5000) {
+            Serial.printf("[TOUCH] stats: %u polls, %u touches in 5s (screen=%s)\n",
+                          poll_count, touch_count, screen_label);
+            poll_count = 0;
+            touch_count = 0;
+            last_stats_ms = now_ms;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(15));  // ~66Hz polling, independent of main loop
+    }
+}
 
 bool touch_get_tap(int16_t &x, int16_t &y) {
-    int16_t tx, ty;
-    uint8_t touched = touch.getPoint(&tx, &ty);
-
-    if (touched) {
-        if (!was_touching) {
-            // New finger down — register the tap
-            was_touching = true;
-            x = tx;
-            y = ty;
-            Serial.printf("TAP: %d, %d\n", tx, ty);
-            return true;
-        }
-        // Still holding — ignore
-        return false;
+    portENTER_CRITICAL(&tap_mux);
+    if (tap_ready) {
+        x = tap_buf_x;
+        y = tap_buf_y;
+        tap_ready = false;
+        portEXIT_CRITICAL(&tap_mux);
+        Serial.printf("[TOUCH] get_tap -> (%d,%d) screen=%s\n", x, y, screen_label);
+        return true;
     }
-
-    // No touch — mark released
-    was_touching = false;
+    portEXIT_CRITICAL(&tap_mux);
     return false;
 }
 
-// Drain any pending/stale touches. Call after screen transitions.
-static void touch_drain() {
-    was_touching = true;  // Treat current state as "already touching"
-    delay(300);           // Let any residual touch expire
-    // Poll until released
-    int16_t tx, ty;
-    for (int i = 0; i < 20; i++) {
-        if (!touch.getPoint(&tx, &ty)) {
-            break;
-        }
-        delay(50);
+void touch_drain() {
+    portENTER_CRITICAL(&tap_mux);
+    drain_requested = true;
+    tap_ready = false;
+    portEXIT_CRITICAL(&tap_mux);
+    // Wait for background task to complete the drain
+    while (drain_requested) {
+        delay(10);
     }
-    was_touching = false;
+}
+
+void touch_set_screen(const char *label) {
+    portENTER_CRITICAL(&label_mux);
+    strncpy(screen_label, label, sizeof(screen_label) - 1);
+    screen_label[sizeof(screen_label) - 1] = '\0';
+    portEXIT_CRITICAL(&label_mux);
+    Serial.printf("[TOUCH] screen set to '%s'\n", label);
 }
 
 // ── Drawing helpers ─────────────────────────────────────────────────────────
@@ -228,6 +329,14 @@ static void draw_wifi_screen(WifiEntry *entries, int count, int page, int select
 }
 
 bool run_wifi_selector(char *ssid_out) {
+    touch_set_screen("wifi_sel");
+
+    // Show scanning screen immediately so user knows the tap registered
+    fb_clear();
+    draw_text_centered(SH / 2, "Scanning WiFi...", &FiraSans);
+    fb_push_full();
+    touch_drain();
+
     Serial.println("Scanning WiFi...");
     int n = WiFi.scanNetworks();
     if (n <= 0) {

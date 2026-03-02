@@ -483,6 +483,7 @@ void setup() {
     ensureValidToken();
     if (fetchUsage()) {
         dashboard_draw(currentStats);
+        touch_set_screen("dashboard");
         lastFetch = millis();
     } else {
         // API fetch failed — retry next loop, don't wipe credentials
@@ -492,43 +493,56 @@ void setup() {
 }
 
 void loop() {
-    // Check for WiFi icon tap
+    // Check for WiFi icon tap (top-right corner)
     int16_t tx, ty;
-    if (touch_get_tap(tx, ty) && dashboard_wifi_icon_tapped(tx, ty)) {
-        Serial.println("WiFi icon tapped — entering WiFi setup");
+    if (touch_get_tap(tx, ty)) {
+        bool hit = dashboard_wifi_icon_tapped(tx, ty);
+        Serial.printf("[MAIN] tap (%d,%d) wifi_hit=%d\n", tx, ty, hit);
+        if (!hit) {
+            Serial.printf("[MAIN] MISS — icon zone: x>=%d, y<=%d\n",
+                          960 - 60 - 10 - 40, 5 + 50 + 40);
+        }
+        if (hit) {
+            Serial.println("WiFi icon tapped — entering WiFi setup");
+            touch_set_screen("wifi_sel");
 
-        // Run WiFi selector — user can cancel with X
-        if (!run_wifi_selector(wifi_ssid)) {
-            Serial.println("WiFi setup cancelled");
-            dashboard_init(); // Force full refresh on return
-            dashboard_draw(currentStats);
+            // Run WiFi selector — user can cancel with X
+            if (!run_wifi_selector(wifi_ssid)) {
+                Serial.println("WiFi setup cancelled");
+                dashboard_init(); // Force full refresh on return
+                dashboard_draw(currentStats);
+                touch_set_screen("dashboard");
+                lastFetch = millis(); // Prevent immediate re-fetch racing with next tap
+                return;
+            }
+
+            touch_set_screen("keyboard");
+            run_keyboard_input("Enter WiFi Password", wifi_pass, sizeof(wifi_pass), true);
+
+            WiFi.disconnect();
+
+            // Save new WiFi credentials (keep existing OAuth token)
+            creds_save(wifi_ssid, wifi_pass, oauth_token);
+            Serial.printf("WiFi changed to: %s\n", wifi_ssid);
+
+            // Reconnect with new credentials
+            dashboard_draw_waiting("Connecting to WiFi...");
+            if (!connectWiFi()) {
+                dashboard_draw_waiting("WiFi failed! Rebooting...");
+                delay(3000);
+                ESP.restart();
+            }
+
+            // Re-sync time and fetch
+            syncNTP();
+            ensureValidToken();
+            if (fetchUsage()) {
+                dashboard_draw(currentStats);
+                touch_set_screen("dashboard");
+                lastFetch = millis();
+            }
             return;
         }
-
-        run_keyboard_input("Enter WiFi Password", wifi_pass, sizeof(wifi_pass), true);
-
-        WiFi.disconnect();
-
-        // Save new WiFi credentials (keep existing OAuth token)
-        creds_save(wifi_ssid, wifi_pass, oauth_token);
-        Serial.printf("WiFi changed to: %s\n", wifi_ssid);
-
-        // Reconnect with new credentials
-        dashboard_draw_waiting("Connecting to WiFi...");
-        if (!connectWiFi()) {
-            dashboard_draw_waiting("WiFi failed! Rebooting...");
-            delay(3000);
-            ESP.restart();
-        }
-
-        // Re-sync time and fetch
-        syncNTP();
-        ensureValidToken();
-        if (fetchUsage()) {
-            dashboard_draw(currentStats);
-            lastFetch = millis();
-        }
-        return;
     }
 
     // Reconnect WiFi if dropped
@@ -551,5 +565,5 @@ void loop() {
         lastFetch = millis();
     }
 
-    delay(100);
+    delay(50);
 }
