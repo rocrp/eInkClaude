@@ -133,8 +133,8 @@ static void draw_wifi_icon() {
 }
 
 bool dashboard_wifi_icon_tapped(int16_t x, int16_t y) {
-    return x >= WIFI_ICON_X - 15 && x <= WIFI_ICON_X + WIFI_ICON_W + 15 &&
-           y >= WIFI_ICON_Y - 15 && y <= WIFI_ICON_Y + WIFI_ICON_H + 15;
+    // Very generous: anything in the bottom-right corner
+    return x >= WIFI_ICON_X - 30 && y >= WIFI_ICON_Y - 30;
 }
 
 static void draw_footer(const char *plan) {
