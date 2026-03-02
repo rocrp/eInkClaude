@@ -496,11 +496,17 @@ void loop() {
     int16_t tx, ty;
     if (touch_get_tap(tx, ty) && dashboard_wifi_icon_tapped(tx, ty)) {
         Serial.println("WiFi icon tapped — entering WiFi setup");
-        WiFi.disconnect();
 
-        // Run WiFi selector + password entry
-        run_wifi_selector(wifi_ssid);
+        // Run WiFi selector — user can cancel with X
+        if (!run_wifi_selector(wifi_ssid)) {
+            Serial.println("WiFi setup cancelled");
+            dashboard_draw(currentStats);
+            return;
+        }
+
         run_keyboard_input("Enter WiFi Password", wifi_pass, sizeof(wifi_pass), true);
+
+        WiFi.disconnect();
 
         // Save new WiFi credentials (keep existing OAuth token)
         creds_save(wifi_ssid, wifi_pass, oauth_token);
@@ -516,6 +522,7 @@ void loop() {
 
         // Re-sync time and fetch
         syncNTP();
+        ensureValidToken();
         if (fetchUsage()) {
             dashboard_draw(currentStats);
             lastFetch = millis();

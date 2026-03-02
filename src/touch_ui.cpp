@@ -209,10 +209,13 @@ static void draw_wifi_screen(WifiEntry *entries, int count, int page, int select
     int btn_y = SH - 65;
     int total_pages = (count + WIFI_ROWS_PER_PAGE - 1) / WIFI_ROWS_PER_PAGE;
 
+    // Cancel button (bottom-left)
+    draw_filled_button(40, btn_y, 80, 50, "X", false);
+
     if (page > 0)
-        draw_filled_button(40, btn_y, 120, 50, "UP", false);
+        draw_filled_button(140, btn_y, 120, 50, "UP", false);
     if (page < total_pages - 1)
-        draw_filled_button(200, btn_y, 120, 50, "DOWN", false);
+        draw_filled_button(280, btn_y, 120, 50, "DOWN", false);
     draw_filled_button(SW - 280, btn_y, 120, 50, "RESCAN", false);
     draw_filled_button(SW - 140, btn_y, 120, 50, "SELECT", false);
 
@@ -271,7 +274,12 @@ bool run_wifi_selector(char *ssid_out) {
 
         int btn_y = SH - 65;
 
-        if (page > 0 && in_rect(tx, ty, 40, btn_y, 120, 50)) {
+        // Cancel (X) button
+        if (in_rect(tx, ty, 40, btn_y, 80, 50)) {
+            return false;
+        }
+
+        if (page > 0 && in_rect(tx, ty, 140, btn_y, 120, 50)) {
             page--;
             selected = page * WIFI_ROWS_PER_PAGE;
             draw_wifi_screen(entries, count, page, selected);
@@ -279,7 +287,7 @@ bool run_wifi_selector(char *ssid_out) {
         }
 
         int total_pages = (count + WIFI_ROWS_PER_PAGE - 1) / WIFI_ROWS_PER_PAGE;
-        if (page < total_pages - 1 && in_rect(tx, ty, 200, btn_y, 120, 50)) {
+        if (page < total_pages - 1 && in_rect(tx, ty, 280, btn_y, 120, 50)) {
             page++;
             selected = page * WIFI_ROWS_PER_PAGE;
             draw_wifi_screen(entries, count, page, selected);

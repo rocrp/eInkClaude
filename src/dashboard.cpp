@@ -105,40 +105,36 @@ static void draw_header() {
     epd_fill_rect(MARGIN_X, DIVIDER_Y, SCREEN_W - 2 * MARGIN_X, 2, 0x00, framebuffer);
 }
 
-// WiFi icon hit region (bottom-right corner)
-static const int WIFI_ICON_X = SCREEN_W - 70;
-static const int WIFI_ICON_Y = SCREEN_H - FOOTER_H + 5;
-static const int WIFI_ICON_W = 55;
-static const int WIFI_ICON_H = 40;
+// WiFi icon hit region (bottom-right corner, 4x size)
+static const int WIFI_ICON_W = 120;
+static const int WIFI_ICON_H = 90;
+static const int WIFI_ICON_X = SCREEN_W - WIFI_ICON_W - 10;
+static const int WIFI_ICON_Y = SCREEN_H - WIFI_ICON_H - 5;
 
 static void draw_wifi_icon() {
-    // Draw concentric arcs to represent WiFi signal
     int cx = WIFI_ICON_X + WIFI_ICON_W / 2;
-    int base_y = WIFI_ICON_Y + WIFI_ICON_H - 4;
+    int base_y = WIFI_ICON_Y + WIFI_ICON_H - 8;
 
     // Dot at center bottom
-    epd_fill_rect(cx - 2, base_y - 4, 5, 5, 0x00, framebuffer);
+    epd_fill_rect(cx - 4, base_y - 8, 9, 9, 0x00, framebuffer);
 
-    // Three arcs (drawn as angled lines since no arc primitive)
+    // Three arcs, 4x scale
     for (int arc = 1; arc <= 3; arc++) {
-        int r = arc * 8;
-        // Draw arc using short line segments
-        for (int a = -50; a <= 50; a += 4) {
+        int r = arc * 20;
+        for (int a = -50; a <= 50; a += 2) {
             float rad = a * 3.14159f / 180.0f;
             int px = cx + (int)(r * sinf(rad));
             int py = base_y - (int)(r * cosf(rad));
             if (px >= 0 && px < SCREEN_W && py >= 0 && py < SCREEN_H) {
-                // Draw 2x2 pixel for visibility
-                epd_fill_rect(px, py, 2, 2, 0x00, framebuffer);
+                epd_fill_rect(px, py, 4, 4, 0x00, framebuffer);
             }
         }
     }
 }
 
 bool dashboard_wifi_icon_tapped(int16_t x, int16_t y) {
-    // Generous tap region around the icon
-    return x >= WIFI_ICON_X - 10 && x <= WIFI_ICON_X + WIFI_ICON_W + 10 &&
-           y >= WIFI_ICON_Y - 10 && y <= WIFI_ICON_Y + WIFI_ICON_H + 10;
+    return x >= WIFI_ICON_X - 15 && x <= WIFI_ICON_X + WIFI_ICON_W + 15 &&
+           y >= WIFI_ICON_Y - 15 && y <= WIFI_ICON_Y + WIFI_ICON_H + 15;
 }
 
 static void draw_footer(const char *plan) {
