@@ -19,6 +19,7 @@ static volatile bool tap_ready = false;
 static volatile int16_t tap_buf_x = 0;
 static volatile int16_t tap_buf_y = 0;
 static volatile bool drain_requested = false;
+static volatile bool touch_task_running = false;
 static portMUX_TYPE tap_mux = portMUX_INITIALIZER_UNLOCKED;
 
 // Screen label for debug logging
@@ -60,6 +61,7 @@ bool touch_init() {
 
     // Start background touch polling on core 0 (main loop runs on core 1)
     xTaskCreatePinnedToCore(touch_task, "touch", 4096, NULL, 2, NULL, 0);
+    touch_task_running = true;
     Serial.println("Touch polling task started on core 0");
 
     return true;
@@ -171,6 +173,7 @@ bool touch_get_tap(int16_t &x, int16_t &y) {
 }
 
 void touch_drain() {
+    if (!touch_task_running) return;  // No task to coordinate with
     portENTER_CRITICAL(&tap_mux);
     drain_requested = true;
     tap_ready = false;
