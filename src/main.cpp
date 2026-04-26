@@ -109,7 +109,7 @@ bool connectWiFi() {
 
 void syncNTP() {
     Serial.println("Syncing time via NTP...");
-    configTime(3600, 3600, "pool.ntp.org", "time.nist.gov"); // CET (UTC+1), DST +1h
+    configTime(TZ_OFFSET_SEC, TZ_DST_SEC, "pool.ntp.org", "time.nist.gov");
 
     struct tm timeinfo;
     int attempts = 0;
